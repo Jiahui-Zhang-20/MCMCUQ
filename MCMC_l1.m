@@ -5,7 +5,15 @@
 clear all
 close all
 
+% creates subdirectory "Figures" if it does not already exist
+if ~exist('./Figures', 'dir')
+	mkdir("Figures")
+end
+
+% adds a folder within Figures for figures generated from this execution
 addpath(genpath('../helper_functs'));
+currDate = strrep(datestr(datetime), ':', '_');
+mkdir('./Figures',currDate)
 
 %% parameters
 
@@ -29,6 +37,17 @@ grid = a + dx*(0:N-1)';
 x = zeros(N,1);
 x = x + 40.*(grid>0.1&grid<0.25) + 10.*(grid<0.35&grid>0.325) + ...
     (2*pi./(sqrt(2*pi)*0.05)*exp(-((grid-0.75)/0.05).^2/(2))).*(grid>0.5);
+
+% plots the true function and it's edge transform
+f1=figure;
+plot(grid,x,'--k','linewidth',1.5);
+title('True Function');
+
+f2=figure;
+L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
+plot(grid, L*x, '-k', 'linewidth', 1.5);
+title('Edge Domain')
+
 
 %% forward model
 
@@ -74,14 +93,14 @@ fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
 % set(L,'interpreter','latex','fontsize',14,'location','north')
 % title('True function')
 
-figure;
-plot(grid,x,'--k','linewidth',1.5);
-hold on;
-plot(grid,mmv_mean,'ob','linewidth',1.5);
-ylim([-10,50]);
-L = legend('True','Data');
-set(L,'interpreter','latex','fontsize',14,'location','north')
-title('True function and Data with Noise')
+% figure;
+% plot(grid,x,'--k','linewidth',1.5);
+% hold on;
+% plot(grid,mmv_mean,'ob','linewidth',1.5);
+% ylim([-10,50]);
+% L = legend('True','Data');
+% set(L,'interpreter','latex','fontsize',14,'location','north')
+% title('True function and Data with Noise')
 
 % %% MMV
 % 
@@ -266,7 +285,7 @@ prop = @(x) normrnd(x, prop_var); % Gaussian proposal distribution - symmetric
 % vector of the diagonal entries
 weights = diag(W);
 
-figure;
+f3=figure;
 plot(grid, weights,'ob','linewidth',1.5);
 title("Weights");
 
@@ -309,36 +328,6 @@ error_mcmc_w = norm(x-mean(x_MH_w(:,BI:end),2))./norm(x);
 
 fprintf('Weighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(3),error_mcmc_w,num_accept_w,N_M);
 
-%% confidence intervals
-fprintf('Calculating confidence intervals...\n');
-
-tic
-ci = zeros(2,N);
-for ii = 1:N
-    
-    dat = x_MH(ii,BI:end);
-    
-    SEM = std(dat)/sqrt(length(dat));               % Standard Error
-%     ts = tinv([0.025  0.975],length(dat)-1)';       % T-Score
-%     ci(:,ii) = mean(dat) + ts*SEM;                  % Confidence Intervals 
-
-    ci(1,ii) = quantile(dat,0.025);
-    ci(2,ii) = quantile(dat,0.975);
-end
-time(3) = toc;
-
-ci_w = zeros(2, N);
-for jj = 1:N
-    
-    dat_w = x_MH_w(jj, BI:end);
-    
-    SEM_w = std(dat_w)/sqrt(length(dat_w));
-    
-    ci_w(1, jj) = quantile(dat_w, 0.025);
-    ci_w(2, jj) = quantile(dat_w, 0.975);
-end
-
-fprintf('|| time = %2.2f sec \n',time(3));
 %% autocorrelation
 % https://www.mathworks.com/matlabcentral/fileexchange/30540-autocorrelation-function-acf
 fprintf('Calculating autocorrelation...\n');
@@ -357,7 +346,7 @@ x_mean_0 = mean(x_MH(ind_0,1:end));
 x_mean_10 = mean(x_MH(ind_10,1:end));
 x_mean_50 = mean(x_MH(ind_50,1:end));
 
-figure;
+f4=figure;
 subplot(2, 2, 1);
 x_acf_40 = acf(x_mean_40', lag_num);
 hold on; xline(BI);
@@ -374,7 +363,6 @@ subplot(2, 2, 4);
 x_acf_50 = acf(x_mean_50', lag_num);
 hold on; xline(BI);
 title("Autocorrelation at x = 50");
-
 sgtitle("Autocorrelation of Unweighted MCMC Mean")
 
 % weighted MCMC autocorrelation
@@ -384,28 +372,86 @@ x_mean_0_w = mean(x_MH_w(ind_0,BI:end));
 x_mean_10_w = mean(x_MH_w(ind_10,BI:end));
 x_mean_50_w = mean(x_MH_w(ind_50,BI:end));
 
-figure;
+f5=figure;
 subplot(2, 2, 1);
 x_acf_40_w = acf(x_mean_40_w', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 40");
+title("Autocorrelation: h(x) = 40");
 subplot(2, 2, 2);
 x_acf_0_w = acf(x_mean_0_w', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 0");
+title("Autocorrelation: h(x) = 0");
 subplot(2, 2, 3);
 x_acf_10_w = acf(x_mean_10_w', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 10");
+title("Autocorrelation: h(x) = 10");
 subplot(2, 2, 4);
 x_acf_50_w = acf(x_mean_50_w', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 50");
+title("Autocorrelation: h(x) = 50");
+sgtitle('Autocorrelation of Weighted MCMC'); 
+
 
 sgtitle("Autocorrelation of Weighted MCMC Mean")
+%% credibility intervals
+fprintf('Calculating confidence intervals...\n');
+
+tic
+% unweighted MCMC CI
+ci = zeros(2,N);
+for ii = 1:N
+    
+    dat = x_MH(ii,BI:end);
+    
+    SEM = std(dat)/sqrt(length(dat));               % Standard Error
+%     ts = tinv([0.025  0.975],length(dat)-1)';     % T-Score
+%     ci(:,ii) = mean(dat) + ts*SEM;                % Confidence Intervals 
+
+    ci(1,ii) = quantile(dat,0.025);
+    ci(2,ii) = quantile(dat,0.975);
+end
+
+% calculating weighted interval widths
+x_ci_40 = mean(ci(2, ind_40) - ci(1, ind_40));
+x_ci_0 = mean(ci(2, ind_0) - ci(1, ind_0));
+x_ci_10 = mean(ci(2, ind_10) - ci(1, ind_10));
+x_ci_50 = mean(ci(2, ind_50) - ci(1, ind_50));
+
+time(3) = toc;
+
+% weighted MCMC CI
+ci_w = zeros(2, N);
+for jj = 1:N
+    
+    dat_w = x_MH_w(jj, BI:end);
+    
+    SEM_w = std(dat_w)/sqrt(length(dat_w));
+    
+    ci_w(1, jj) = quantile(dat_w, 0.025);
+    ci_w(2, jj) = quantile(dat_w, 0.975);
+end
+
+% calculating weighted interval widths
+x_ci_w_40 = mean(ci_w(2, ind_40) - ci(1, ind_40));
+x_ci_w_0 = mean(ci_w(2, ind_0) - ci(1, ind_0));
+x_ci_w_10 = mean(ci_w(2, ind_10) - ci(1, ind_10));
+x_ci_w_50 = mean(ci_w(2, ind_50) - ci(1, ind_50));
+
+bar_ci = [ x_ci_40, x_ci_w_40
+           x_ci_0, x_ci_w_0
+           x_ci_10, x_ci_w_10
+           x_ci_50, x_ci_w_50 ];
+       
+f6=figure; % plots the CI's in a double bar graph
+title('Credibility Intervals');
+bar(bar_ci);
+legend('Unweighted MCMC', 'Weighted MCMC', 'location', 'northeastoutside');
+set(gca,'xticklabel',{'h(x)=40', 'h(x)=0', 'h(x)=10', 'h(x)=50'});
+
+fprintf('|| time = %2.2f sec \n',time(3));
 %% plot results
 
-figure;
+f7=figure;
 plot(grid,x,'--k','linewidth',1.5)
 hold on;
 plot(grid,x_MH(:,1),'b-.','linewidth',1.5)
@@ -414,7 +460,7 @@ L = legend('True','MAP Mean','Unweighted MCMC Mean');
 set(L,'interpreter','latex','fontsize',14,'location','north')
 title('Results with Map Mean')
 
-figure;
+f8=figure;
 plot(grid,x,'--k','linewidth',1.5)
 hold on
 plot(grid,mean(x_MH(:,BI:end),2),'r-','linewidth',1.5)
@@ -422,7 +468,7 @@ plot(grid,ci(1,:),'r-.')
 plot(grid,ci(2,:),'r-.')
 L = legend('True','Unweighted MCMC Mean','95\% CI');
 set(L,'interpreter','latex','fontsize',14,'location','north')
-title('Results with Confidence Intervals')
+title('Results with Credibility Intervals')
 % 
 % figure;
 % plot(grid,mean(x_MH_sparse, 2),'b-','linewidth',1.5);
@@ -446,7 +492,7 @@ title('Results with Confidence Intervals')
 % set(L, 'interpreter', 'latex', 'fontsize', 14, 'location', 'north');
 % 
 
-figure;
+f9=figure;
 plot(grid,x,'--k','linewidth',1.5)
 hold on
 plot(grid,mean(x_MH_w, 2),'b-','linewidth',1.5);
@@ -455,15 +501,15 @@ L = legend('True', 'weighted MCMC', 'Unweighted MCMC');
 set(L, 'interpreter', 'latex', 'fontsize', 14, 'location', 'north');
 title('Unweighted Versus Weighted MCMC');
 
-figure;
+f10=figure;
 plot(grid,x,'--k','linewidth',1.5)
 hold on
 plot(grid,mean(x_MH_w(:,BI:end),2),'b-','linewidth',1.5)
 plot(grid,ci_w(1,:),'b-.')
 plot(grid,ci_w(2,:),'b-.')
-L = legend('True','Weighted MCMC Mean','95\% CI');
+L = legend('True Function','Weighted MCMC Mean','95\% CI');
 set(L,'interpreter','latex','fontsize',14,'location','north')
-title('Results with Confidence Intervals')
+title('Results with Credbility Intervals')
 
 error_inv = norm(real(A\y)-x)/norm(x);
 tic 
@@ -483,34 +529,34 @@ fprintf('inv(A) \t || time = %2.4f sec \t|| error = %2.4f \t|| cond(A) = %2.4e \
 it = BI:N_M;
 
 % unweighted MCMC convergence checks
-figure;
+f11=figure;
 subplot(2,2,1); 
 plot(x_MH(ind_40(ceil(length(ind_40)/2)),1:end)); 
 ylim([35,45]);
 xline(BI);
 hold on; plot(40*ones(N_M,1),'r')
-title("x = 40");
+title("h(x) = 40");
 subplot(2,2,2); 
 plot(x_MH(ind_0(ceil(length(ind_0)/2)),1:end)); 
 ylim([-5,5]);
 xline(BI);
 hold on; plot(0*ones(N_M,1),'r')
-title("x = 0");
+title("h(x) = 0");
 subplot(2,2,3); 
 plot(x_MH(ind_10(ceil(length(ind_10)/2)),1:end)); 
 ylim([5,15]);
 xline(BI);
 hold on; plot(10*ones(N_M,1),'r')
-title("x = 10");
+title("h(x) = 10");
 subplot(2,2,4); 
 plot(x_MH(ind_50(ceil(length(ind_50)/2)),1:end));
 ylim([45,55]);
 xline(BI);
 hold on; plot(50*ones(N_M,1),'r')
-title("x = 50");
+title("h(x) = 50");
 sgtitle('Trace Plots at Locations of Vector x for Unweighted MCMC'); 
 
-figure; 
+f12=figure; 
 % subplot(1,2,1); 
 plot(accept_ratio(1:end))
 xline(BI);
@@ -521,34 +567,34 @@ title('Acceptance Ratio for Unweighted MCMC')
 % title('log-posterior for Unweighted MCMC');
 
 % weighted MCMC convergence checks
-figure;
+f13=figure;
 subplot(2,2,1); 
 plot(x_MH_w(ind_40(ceil(length(ind_40)/2)),1:end)); 
 ylim([35,45]);
 xline(BI);
 hold on; plot(40*ones(N_M,1),'r')
-title("x = 40");
+title("h(x) = 40");
 subplot(2,2,2); 
 plot(x_MH_w(ind_0(ceil(length(ind_0)/2)),1:end)); 
 ylim([-5,5]);
 xline(BI);
 hold on; plot(0*ones(N_M,1),'r')
-title("x = 0");
+title("h(x) = 0");
 subplot(2,2,3); 
 plot(x_MH_w(ind_10(ceil(length(ind_10)/2)),1:end)); 
 ylim([5,15]);
 xline(BI);
 hold on; plot(10*ones(N_M,1),'r')
-title("x = 10");
+title("h(x) = 10");
 subplot(2,2,4); 
 plot(x_MH_w(ind_50(ceil(length(ind_50)/2)),1:end)); 
 ylim([45,55]);
 xline(BI);
 hold on; plot(50*ones(N_M,1),'r')
-title("x = 50");
+title("h(x) = 50");
 sgtitle('Trace Plots at Locations of Vector x for Weighted MCMC'); 
 
-figure; 
+f14=figure; 
 % subplot(1,2,1); 
 plot(accept_ratio_w(1:end))
 xline(BI);
@@ -557,4 +603,23 @@ title('Acceptance Ratio for Weighted MCMC')
 % plot(log_post_w(1:end)) 
 % xline(BI);
 % title('log-posterior for Weighted MCMC'); 
+
+%% save the figures to the subdirectory "Figures"
+
+prefix = sprintf('Noise_%.3f_', sig);
+saveas(figure(f1),[pwd '/Figures/', currDate, '/', prefix, 'TrueFunction.jpg']);
+saveas(figure(f2),[pwd '/Figures/', currDate, '/', prefix, 'EdgeDomain.jpg']);
+saveas(figure(f3),[pwd '/Figures/', currDate, '/', prefix, 'VBJSWeights.jpg']);
+saveas(figure(f4),[pwd '/Figures/', currDate, '/', prefix, 'Auto_uw.jpg']);
+saveas(figure(f5),[pwd '/Figures/', currDate, '/', prefix, 'Auto_w.jpg']);
+saveas(figure(f6),[pwd '/Figures/', currDate, '/', prefix, 'CI_Widths.jpg']);
+saveas(figure(f7),[pwd '/Figures/', currDate, '/', prefix, 'MAP_Results.jpg']);
+saveas(figure(f8),[pwd '/Figures/', currDate, '/', prefix, 'CI_uw.jpg']);
+saveas(figure(f9),[pwd '/Figures/', currDate, '/', prefix, 'uw_vs_w.jpg']);
+saveas(figure(f10),[pwd '/Figures/', currDate, '/', prefix, 'CI_w.jpg']);
+saveas(figure(f11),[pwd '/Figures/', currDate, '/', prefix, 'Trace_uw.jpg']);
+saveas(figure(f12),[pwd '/Figures/', currDate, '/', prefix, 'AR_uw.jpg']);
+saveas(figure(f13),[pwd '/Figures/', currDate, '/', prefix, 'Trace_w.jpg']);
+saveas(figure(f14),[pwd '/Figures/', currDate, '/', prefix, 'AR_w.jpg']);
+close all
 
