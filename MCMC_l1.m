@@ -1,6 +1,6 @@
 % MCMC for Uncertainty  Quantification
 % Theresa Scarnati
-% modified by Jiahui (Jack) Zhang (June 2020)
+% modified by Jiahui (Jack) Zhang (July 2020)
 
 clear all
 close all
@@ -23,11 +23,8 @@ J = 20; % number of mmvs
 PA_order = 2; % PA order
 N_M = 50000; % Chain length
 BI = 25000; % burn in length
-sig =1.00; % standard deviation of AGWN
-prop_var = 0.1;
-
-beta = 1.0; % width of proposal distribution
-
+sig = 1.00; % standard deviation of AGWN
+prop_var = 0.1; % proposal distribution variance (Gaussian)
 %% function to be approximated
 a = 0;
 b = 1;
@@ -63,13 +60,7 @@ end
 
 % random forward model
 A = 0.1*randn(N,N);
-
-%  A = dftmtx(N)./sqrt(N); 
-
 %% data
-
-% eta = sig*(randn(N,1));%+1i*randn(N,1)); % AGWN
-% y = A*x + eta; % data
 
 snr_y = zeros(J, 1);
 
@@ -85,62 +76,23 @@ end
 
 mmv_mean = mean(mmv, 2);
 fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
-
-% figure;
-% plot(grid,x,'--k','linewidth',1.5);
-% ylim([-10,50]);
-% L = legend('True');
-% set(L,'interpreter','latex','fontsize',14,'location','north')
-% title('True function')
-
-% figure;
-% plot(grid,x,'--k','linewidth',1.5);
-% hold on;
-% plot(grid,mmv_mean,'ob','linewidth',1.5);
-% ylim([-10,50]);
-% L = legend('True','Data');
-% set(L,'interpreter','latex','fontsize',14,'location','north')
-% title('True function and Data with Noise')
-
-% %% MMV
-% 
-% y_mmv = zeros(N, J);
-% 
-% for ii = 1:J
-%     % random forward model
-%     A = 0.1*randn(N,N);
-%     eta = sig*(randn(N,1));%+1i*randn(N,1)); % AGWN
-%     y_mmv(:, ii) = A*x + eta; % data
-% end
-
 %%
 % J MAP estimates
 
 fprintf('Calclulating MAP estimates\n');
 
 L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
-%lam = zeros(J,1);
 x_tilde = zeros(N,J);
 PAx_map = zeros(N,J);
-
-% figure;
-% plot(grid,x,'--k'); hold on;
-% title('True Function')
 
 % initial MAP reconstructions
 tic;
 for jj = 1:J
-    %lam(jj) = rand;
-    %lam(jj) = (ii)/(J);
     cvx_begin quiet
     clear cvx
     variable x_map(N,1)
     minimize( norm(mmv(:, jj)-A*x_map,2)+0.5*norm(L*x_map,prior));
-    %minimize( norm(y_mmv(:, ii)-A*x_map,2)+0.5*norm(W*L*x_map,1));
-
     cvx_end
-    
-%     plot(grid,x_map);
     
     x_tilde(:,jj) = x_map; % signal reconstructions
     PAx_map(:,jj) = L*x_map; % function in sparsity domain
@@ -155,36 +107,14 @@ error_inv_sum = sum(error_vec.^(-1));
 %% calculate weights
 
 [W, var_vec] = VBJS_weights(x_tilde);
-
-    
-% for kk = 1:J
-%     error = norm(x-x_tilde(:, kk))./norm(x);
-%     error_vec(kk) = error;
-%     fprintf('\n The error of MAP estimates with lambda = %.2d: %g \n', lam(kk), error_vec(kk));
-% 
-% end
-
-%lambda_weighted = sum(lam./error_vec)./(sum(1./error_vec));
-%fprintf("The weighted lambda: %1.2f \n", lambda_weighted);
-%fprintf('MAP \t || time = %2.2f sec \t|| error = %2.4f \n',time(1),error_map);
-
-
 %% unweighted posterior
-
-%var = mean(lam); % just my first idea (we could change this)
-var_pos = .25;
-%f_post = @(x) exp(-norm(y-A*x,2)^2 - lambda_weighted*norm(L*x,1)); % f_post:R^N->R
+var_pos = 0.25;
 f_post = @(x) exp(-norm(mmv(:, 1)-A*x,2)^2 - var_pos*norm(L*x,prior)); % f_post:R^N->R
-
-
 %% unweighted MCMC
 fprintf('Building MCMC chains...\n');
 
 x_MH = zeros(N,N_M); % each row is a MC for the jth grid point
-% prop = @(x) (x-beta/2) + (beta)*rand(N,1); % uniform proposal distribution - symmetric
 prop = @(x) normrnd(x, prop_var); % Gaussian proposal distribution - symmetric
-
-% prop = @(x) x + beta*randn; 
 
 x_MH(:,1) = mean(x_tilde,2); % initial condition
 
@@ -222,58 +152,9 @@ time(2) = toc;
 error_mcmc = norm(x-mean(x_MH(:,BI:end),2))./norm(x);
 
 fprintf('Unweighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(2),error_mcmc,num_accept,N_M);
-
-
-% %% sparse domain of MCMC (mean and variance)
-% L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
-% x_MH_sparse = L*(x_MH(:, BI:end));
-% x_MH_s_m = mean(x_MH_sparse, 2);
-% x_MH_s_v = var(x_MH_sparse');
-
-% %% calculate weights
-% 
-% weights = zeros(1, N);
-% for ii=1:N
-%     weights(ii) = 1/x_MH_s_v(ii);
-% end
-% 
-% weights_normed = norm(weights, 1);
-% W = diag(weights);
-
-% %% weighted MAP estimates
-% 
-% L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
-% lam = zeros(J,1);
-% x_tilde_w = zeros(N,J);
-% PAx_map_w = zeros(N,J);
-% 
-% % figure;
-% % plot(grid,x,'--k'); hold on;
-% % title('True Function')
-% 
-% % initial MAP reconstructions
-% tic;
-% for ii = 1:J
-%     %lam(ii) = rand;
-%     lam(ii) = (ii)/(J);
-%     cvx_begin quiet
-%     clear cvx
-%     variable x_map_w(N,1)
-%     minimize( norm(y-A*x_map_w,2)+lam(ii)*norm(W*L*x_map_w,1));
-%     cvx_end
-%     
-% %     plot(grid,x_map);
-%     
-%     x_tilde_w(:,ii) = x_map_w; % signal reconstructions
-%     PAx_map_w(:,ii) = L*x_map_w; % function in sparsity domain
-%     
-% end
-
 %% weighted posterior
 
-%var = mean(lam); % just my first idea (we could change this)
 var_pos_w = 0.25;
-%f_post = @(x) exp(-norm(y-A*x,2)^2 - lambda_weighted*norm(L*x,1)); % f_post:R^N->R
 f_post_w = @(x) exp(-norm(mmv(:, 1)-A*x,2)^2 - var_pos_w*norm(W*L*x,prior)); % f_post:R^N->R
 
 %% Weighted MCMC
@@ -288,8 +169,6 @@ weights = diag(W);
 f3=figure;
 plot(grid, weights,'ob','linewidth',1.5);
 title("Weights");
-
-% prop = @(x) x + beta*randn; 
 
 x_MH_w(:,1) = mean(x_tilde,2); % initial condition
 
@@ -394,7 +273,7 @@ sgtitle('Autocorrelation of Weighted MCMC');
 
 sgtitle("Autocorrelation of Weighted MCMC Mean")
 %% credibility intervals
-fprintf('Calculating confidence intervals...\n');
+fprintf('Calculating credibility intervals...\n');
 
 tic
 % unweighted MCMC CI
@@ -404,8 +283,6 @@ for ii = 1:N
     dat = x_MH(ii,BI:end);
     
     SEM = std(dat)/sqrt(length(dat));               % Standard Error
-%     ts = tinv([0.025  0.975],length(dat)-1)';     % T-Score
-%     ci(:,ii) = mean(dat) + ts*SEM;                % Confidence Intervals 
 
     ci(1,ii) = quantile(dat,0.025);
     ci(2,ii) = quantile(dat,0.975);
@@ -469,28 +346,6 @@ plot(grid,ci(2,:),'r-.')
 L = legend('True','Unweighted MCMC Mean','95\% CI');
 set(L,'interpreter','latex','fontsize',14,'location','north')
 title('Results with Credibility Intervals')
-% 
-% figure;
-% plot(grid,mean(x_MH_sparse, 2),'b-','linewidth',1.5);
-% hold on
-% plot(grid, ci_sparse(1, :), 'r-');
-% plot(grid, ci_sparse(2, :), 'b-');
-% L = legend('True', 'MCMC Sparse mean', '95\% CI');
-% set(L, 'interpreter', 'latex', 'fontsize', 14, 'location', 'north');
-% title('Results in the sparse domain');
-% 
-% figure;
-% plot(grid,var(x_MH_sparse'), 'b-','linewidth',1.5);
-% title('variance in sparse domain')
-% 
-% figure;
-% plot(grid, x, '--k', 'linewidth', 1.5)
-% hold on
-% plot(grid, mean(x_tilde, 2), 'b-', 'linewidth', 1.5);
-% plot(grid, mean(x_tilde_w, 2), 'r-', 'linewidth', 1.5);
-% L = legend('True', 'unweighted MAP', 'weighted MAP');
-% set(L, 'interpreter', 'latex', 'fontsize', 14, 'location', 'north');
-% 
 
 f9=figure;
 plot(grid,x,'--k','linewidth',1.5)
@@ -521,11 +376,6 @@ fprintf('inv(A) \t || time = %2.4f sec \t|| error = %2.4f \t|| cond(A) = %2.4e \
 %% Convergence checks 
 % https://jellis18.github.io/post/2018-01-02-mcmc-part1/
 
-% ind_40 = find(x==40); 
-% ind_0 = find(x == 0); 
-% ind_10 = find(x==10); 
-% ind_50 = find(and(x<51,x>49)); 
-
 it = BI:N_M;
 
 % unweighted MCMC convergence checks
@@ -554,17 +404,12 @@ ylim([45,55]);
 xline(BI);
 hold on; plot(50*ones(N_M,1),'r')
 title("h(x) = 50");
-sgtitle('Trace Plots at Locations of Vector x for Unweighted MCMC'); 
+sgtitle('Trace Plots for Unweighted MCMC'); 
 
 f12=figure; 
-% subplot(1,2,1); 
 plot(accept_ratio(1:end))
 xline(BI);
 title('Acceptance Ratio for Unweighted MCMC')
-% subplot(1,2,2); 
-% plot(log_post(1:end)) 
-% xline(BI);
-% title('log-posterior for Unweighted MCMC');
 
 % weighted MCMC convergence checks
 f13=figure;
@@ -592,17 +437,13 @@ ylim([45,55]);
 xline(BI);
 hold on; plot(50*ones(N_M,1),'r')
 title("h(x) = 50");
-sgtitle('Trace Plots at Locations of Vector x for Weighted MCMC'); 
+sgtitle('Trace Plots for Weighted MCMC'); 
 
-f14=figure; 
-% subplot(1,2,1); 
+f14=figure;  
 plot(accept_ratio_w(1:end))
 xline(BI);
 title('Acceptance Ratio for Weighted MCMC')
-% subplot(1,2,2); 
-% plot(log_post_w(1:end)) 
-% xline(BI);
-% title('log-posterior for Weighted MCMC'); 
+
 
 %% save the figures to the subdirectory "Figures"
 
@@ -623,3 +464,20 @@ saveas(figure(f13),[pwd '/Figures/', currDate, '/', prefix, 'Trace_w.jpg']);
 saveas(figure(f14),[pwd '/Figures/', currDate, '/', prefix, 'AR_w.jpg']);
 close all
 
+%% write the specifications of the MCMC run
+specfilename = sprintf('./Figures/%s/Specs.txt', currDate);
+specfile = fopen(specfilename, 'wt' );
+fprintf(specfile, 'MCMC Specifications: \n');
+fprintf(specfile, '\n');
+fprintf(specfile, 'Grid size: %d\n', N);
+fprintf(specfile, 'Number of multiple measurement vectors: %d\n', J);
+fprintf(specfile, 'Prior distribution: ell_%d\n', prior);
+fprintf(specfile, 'Coefficient on the prior: %.3f\n', var_pos);
+fprintf(specfile, 'Polynomial annihilation order: %d\n', PA_order);
+fprintf(specfile, 'MCMC chain length: %d\n', N_M);
+fprintf(specfile, 'Burn-in length: %d\n', BI);
+fprintf(specfile, 'Signal to noise ratio: %.4f\n', mean(snr_y));
+fprintf(specfile, 'Proposal distribution variance: %.3f\n', prop_var);
+fprintf(specfile, 'Unweighted MCMC acceptance rate: %d/%d \n', num_accept, N_M);
+fprintf(specfile, 'Weighted MCMC acceptance rate: %d/%d \n', num_accept_w, N_M);
+fclose(specfile);
