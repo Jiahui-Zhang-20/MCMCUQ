@@ -229,19 +229,19 @@ f4=figure;
 subplot(2, 2, 1);
 x_acf_40 = acf(x_mean_40', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 40");
+title("Autocorrelation at h(x) = 40");
 subplot(2, 2, 2);
 x_acf_0 = acf(x_mean_0', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 0");
+title("Autocorrelation at h(x) = 0");
 subplot(2, 2, 3);
 x_acf_10 = acf(x_mean_10', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 10");
+title("Autocorrelation at h(x) = 10");
 subplot(2, 2, 4);
 x_acf_50 = acf(x_mean_50', lag_num);
 hold on; xline(BI);
-title("Autocorrelation at x = 50");
+title("Autocorrelation at h(x) = 50");
 sgtitle("Autocorrelation of Unweighted MCMC Mean")
 
 % weighted MCMC autocorrelation
