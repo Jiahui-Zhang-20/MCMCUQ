@@ -23,7 +23,7 @@ J = 20; % number of mmvs
 PA_order = 2; % PA order
 N_M = 50000; % Chain length
 BI = 25000; % burn in length
-sig = 1.00; % standard deviation of AGWN
+sig = 0.25; % standard deviation of AGWN
 prop_var = 0.1; % proposal distribution variance (Gaussian)
 %% function to be approximated
 a = 0;
@@ -76,6 +76,12 @@ end
 
 mmv_mean = mean(mmv, 2);
 fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
+
+%% noise variance estimation
+
+var_est = mean(var(mmv, 0, 2)); % variances along the rows (each vector is a sample of Y)
+fprintf('the estimated standard deviation of the noise is: %f \n ', sqrt(var_est));
+
 %%
 % J MAP estimates
 
@@ -85,13 +91,15 @@ L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
 x_tilde = zeros(N,J);
 PAx_map = zeros(N,J);
 
+reg_param = 2 * var_est; % alpha * sigma^2
+
 % initial MAP reconstructions
 tic;
 for jj = 1:J
     cvx_begin quiet
     clear cvx
     variable x_map(N,1)
-    minimize( norm(mmv(:, jj)-A*x_map,2)+0.5*norm(L*x_map,prior));
+    minimize((1/reg_param) * norm(mmv(:, jj)-A*x_map,2)+ norm(L*x_map,prior));
     cvx_end
     
     x_tilde(:,jj) = x_map; % signal reconstructions
@@ -108,8 +116,8 @@ error_inv_sum = sum(error_vec.^(-1));
 
 [W, var_vec] = VBJS_weights(x_tilde);
 %% unweighted posterior
-var_pos = 0.25;
-f_post = @(x) exp(-norm(mmv(:, 1)-A*x,2)^2 - var_pos*norm(L*x,prior)); % f_post:R^N->R
+var_pos = 2* var_est; % alpha  * sigma^2
+f_post = @(x) exp(-(1/var_pos)* norm(mmv(:, 1)-A*x,2)^2 - norm(L*x,prior)); % f_post:R^N->R
 %% unweighted MCMC
 fprintf('Building MCMC chains...\n');
 
@@ -153,9 +161,8 @@ error_mcmc = norm(x-mean(x_MH(:,BI:end),2))./norm(x);
 
 fprintf('Unweighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(2),error_mcmc,num_accept,N_M);
 %% weighted posterior
-
-var_pos_w = 0.25;
-f_post_w = @(x) exp(-norm(mmv(:, 1)-A*x,2)^2 - var_pos_w*norm(W*L*x,prior)); % f_post:R^N->R
+var_pos_w = 2* var_est; % alpha * sigma^2
+f_post_w = @(x) exp(- (1/var_pos) * norm(mmv(:, 1)-A*x,2)^2 - norm(W*L*x,prior)); % f_post_w:R^N->R
 
 %% Weighted MCMC
 
