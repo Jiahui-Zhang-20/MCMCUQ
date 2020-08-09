@@ -1,6 +1,5 @@
-% MAP estimation
-% Theresa Scarnati
-% modified by Jiahui (Jack) Zhang (July 2020)
+% MAP estimation (error vs. alpha plotting)
+% modified by Jiahui (Jack) Zhang (August 2020)
 
 clear all
 close all
@@ -9,9 +8,14 @@ close all
 
 prior =1; %p of the ell_p prior
 N = 80; % grid size
-J = 20; % number of mmvs
+J = 10; % number of mmvs
 PA_order = 2; % PA order
 sig = 0.25; % standard deviation of AGWN
+
+M = 10;  % number of different noise levels
+noise_arr = linspace(0.2, 2.0, M);
+K = 20; % number of tuning parameters
+alpha_vec = linspace(0.05, 1.0, K); % vector of tuning parameters
 %% function to be approximated
 a = 0;
 b = 1;
@@ -37,47 +41,70 @@ end
 A = 0.1*randn(N,N);
 %% data
 
-snr_y = zeros(J, 1);
-
-mmv = zeros(N, J);
+% mmv = zeros(N, J);
+mmv_arr = zeros(N, M, J); % M noise levels with J N-dim arrays each
 
 % building the J measurement vectors
-for jj=1:J
-    eta = sig*(randn(N,1));%+1i*randn(N,1)); % AGWN
-    y = A*x + eta; % data
-    mmv(:,jj) = y;
-    snr_y(jj,1) = snr(A*x, eta);
+for mm= 1:M % varying noise levels
+%     snr_y = zeros(J, 1);
+    for jj=1:J % iterate over all measurement vectors
+        eta = sig*(randn(N,1)); 
+        y = A*x + eta; % data
+%     mmv(:,jj) = y;
+        mmv_arr(:, mm, jj) = y;
+%         snr_y(jj,1) = snr(A*x, eta);
+    end
 end
 
-mmv_mean = mean(mmv, 2);
-fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
-%%
-% J MAP estimates
+% mmv_mean = mean(mmv, 2);
+% fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
+
+%% J MAP estimates
 
 fprintf('Calclulating MAP estimates\n');
 
 L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
-x_tilde = zeros(N,J);
-PAx_map = zeros(N,J);
 
-alpha_vec = linspace(0, 2, 10); % there needs to be two for-loops (variance and alpha)
+error_arr = zeros(K, M); % M columns: each column a plot of err vs. alpha
 
-reg_param = 2 * var_est; % alpha * sigma^2
+reg_param = 2 * sig^2; % alpha * sigma^2
+
 % initial MAP reconstructions
 tic;
-for jj = 1:J
-    cvx_begin quiet
-    clear cvx
-    variable x_map(N,1)
-    minimize((1/reg_param) * norm(mmv(:, jj)-A*x_map,2)+ norm(L*x_map,prior));
-    cvx_end
+for mm = 1:M % iterate through noise level
     
-    x_tilde(:,jj) = x_map; % signal reconstructions
-    PAx_map(:,jj) = L*x_map; % function in sparsity domain
+    for aa = 1:K % iterate through alpha's
+        
+             x_tilde = zeros(N,J);
+%             PAx_map = zeros(N,J);
+        for jj = 1:J % iterate over each measurement vector
+            
+            cvx_begin quiet
+            clear cvx
+            variable x_map(N,1)
+            minimize((1/reg_param) * norm(mmv_arr(:, mm, jj)-A*x_map,2)+ alpha_vec(aa) *norm(L*x_map,prior));
+            cvx_end
+    
+            x_tilde(:,jj) = x_map; % signal reconstructions
+%           PAx_map(:,jj) = L*x_map; % function in sparsity domain
+        end
+        
+        error_map = norm(x-mean(x_tilde, 2)); %l_2 distance between two vecs
+        error_arr(aa, mm)  = error_map;
+    end
     
 end
-time(1) = toc;
-error_map = norm(x-mean(x_tilde,2))./norm(x);
 
-% error_vec = zeros(J, 1);
-% error_inv_sum = sum(error_vec.^(-1));
+
+% plotting error vs. alpha for each noise level
+fig = figure();
+Legend = cell(M, 1);
+hold on;
+for mm = 1:M
+    plot(alpha_vec, error_arr(:, mm)); hold on
+    Legend{mm}=strcat('Noise SD: ', num2str(noise_arr(mm)));
+end
+legend(Legend);
+title = ('l_2 distance vs. alpha');
+xlabel('alpha');
+ylabel('l2 error');
