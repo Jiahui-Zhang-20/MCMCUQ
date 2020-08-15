@@ -19,12 +19,14 @@ mkdir('./Figures',currDate)
 
 prior =1; %p of the ell_p prior
 N = 80; % grid size
-J = 20; % number of mmvs
+J = 10; % number of mmvs
 PA_order = 2; % PA order
 N_M = 50000; % Chain length
 BI = 25000; % burn in length
-sig = 0.25; % standard deviation of AGWN
+sig = 1.00; % standard deviation of AGWN
 prop_var = 0.1; % proposal distribution variance (Gaussian)
+L = PA_Operator_1D(N,PA_order); % polynomial annihiliation operator
+% alpha = 0.25;
 %% function to be approximated
 a = 0;
 b = 1;
@@ -35,13 +37,13 @@ x = zeros(N,1);
 x = x + 40.*(grid>0.1&grid<0.25) + 10.*(grid<0.35&grid>0.325) + ...
     (2*pi./(sqrt(2*pi)*0.05)*exp(-((grid-0.75)/0.05).^2/(2))).*(grid>0.5);
 
-% plots the true function and it's edge transform
+%plots the true function and it's edge transform
 f1=figure;
 plot(grid,x,'--k','linewidth',1.5);
 title('True Function');
 
 f2=figure;
-L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
+% L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
 plot(grid, L*x, '-k', 'linewidth', 1.5);
 title('Edge Domain')
 
@@ -77,6 +79,12 @@ end
 mmv_mean = mean(mmv, 2);
 fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
 
+%% alpha posterior approximation
+
+low_bnd = 0.00;
+up_bnd = 1.00;
+alpha_hat = alphaCV(mmv, A, prior, sig, L, 10, 20, low_bnd, up_bnd); % change sigma to an estimate later
+
 %% noise variance estimation
 
 var_est = mean(var(mmv, 0, 2)); % variances along the rows (each vector is a sample of Y)
@@ -86,12 +94,10 @@ fprintf('the estimated standard deviation of the noise is: %f \n ', sqrt(var_est
 % J MAP estimates
 
 fprintf('Calclulating MAP estimates\n');
-
-L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
 x_tilde = zeros(N,J);
 PAx_map = zeros(N,J);
 
-reg_param = 2 * var_est; % alpha * sigma^2
+reg_param = 2 * var_est; % 2* sigma^2
 
 % initial MAP reconstructions
 tic;
@@ -99,7 +105,7 @@ for jj = 1:J
     cvx_begin quiet
     clear cvx
     variable x_map(N,1)
-    minimize((1/reg_param) * norm(mmv(:, jj)-A*x_map,2)+ norm(L*x_map,prior));
+    minimize((1/reg_param) * norm(mmv(:, jj)-A*x_map,2)+ alpha_hat * norm(L*x_map,prior));
     cvx_end
     
     x_tilde(:,jj) = x_map; % signal reconstructions
@@ -116,8 +122,8 @@ error_inv_sum = sum(error_vec.^(-1));
 
 [W, var_vec] = VBJS_weights(x_tilde);
 %% unweighted posterior
-var_pos = 2* var_est; % alpha  * sigma^2
-f_post = @(x) exp(-(1/var_pos)* norm(mmv(:, 1)-A*x,2)^2 - norm(L*x,prior)); % f_post:R^N->R
+var_pos = 2* var_est; % sigma^2
+f_post = @(x) exp(-(1/var_pos)* norm(mmv(:, 1)-A*x,2)^2 - alpha_hat * norm(L*x,prior)); % f_post:R^N->R
 %% unweighted MCMC
 fprintf('Building MCMC chains...\n');
 
@@ -137,11 +143,11 @@ for k = 2:N_M
     
     x_cand = prop(x_MH(:,k-1));
     ratio = (f_post(x_cand)./f_post(x_MH(:,k-1)));
-    alpha = min(1,ratio);
+    accept_alpha = min(1,ratio);
     
     u = rand;
     
-    if u<alpha
+    if u< accept_alpha
         x_MH(:,k) = x_cand;
         num_accept = num_accept + 1; 
 
@@ -161,8 +167,8 @@ error_mcmc = norm(x-mean(x_MH(:,BI:end),2))./norm(x);
 
 fprintf('Unweighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(2),error_mcmc,num_accept,N_M);
 %% weighted posterior
-var_pos_w = 2* var_est; % alpha * sigma^2
-f_post_w = @(x) exp(- (1/var_pos) * norm(mmv(:, 1)-A*x,2)^2 - norm(W*L*x,prior)); % f_post_w:R^N->R
+var_pos_w = 2* var_est; % sigma^2
+f_post_w = @(x) exp(- (1/var_pos) * norm(mmv(:, 1)-A*x,2)^2 - alpha_hat * norm(W*L*x, prior)); % f_post_w:R^N->R
 
 %% Weighted MCMC
 
@@ -190,11 +196,11 @@ for k = 2:N_M
     
     x_cand = prop(x_MH_w(:,k-1));
     ratio = (f_post_w(x_cand)./f_post_w(x_MH_w(:,k-1)));
-    alpha = min(1,ratio);
+    accept_alpha = min(1,ratio);
     
     u = rand;
     
-    if u<alpha
+    if u< accept_alpha
         x_MH_w(:,k) = x_cand;
         num_accept_w = num_accept_w + 1; 
 
@@ -479,7 +485,7 @@ fprintf(specfile, '\n');
 fprintf(specfile, 'Grid size: %d\n', N);
 fprintf(specfile, 'Number of multiple measurement vectors: %d\n', J);
 fprintf(specfile, 'Prior distribution: ell_%d\n', prior);
-fprintf(specfile, 'Coefficient on the prior: %.3f\n', var_pos);
+fprintf(specfile, 'alpha_hat (alpha posterior approximation): %.3f\n', alpha_hat);
 fprintf(specfile, 'Polynomial annihilation order: %d\n', PA_order);
 fprintf(specfile, 'MCMC chain length: %d\n', N_M);
 fprintf(specfile, 'Burn-in length: %d\n', BI);
