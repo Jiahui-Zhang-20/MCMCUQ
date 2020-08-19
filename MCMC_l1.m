@@ -2,6 +2,7 @@
 % Theresa Scarnati
 % modified by Jiahui (Jack) Zhang (July 2020)
 
+
 clear all
 close all
 
@@ -17,22 +18,30 @@ mkdir('./Figures',currDate)
 
 %% parameters
 
-prior =1; %p of the ell_p prior
+prior = 1; %p of the ell_p prior
 N = 80; % grid size
-J = 10; % number of mmvs
+J = 20; % number of mmvs
 PA_order = 2; % PA order
 N_M = 50000; % Chain length
 BI = 25000; % burn in length
 sig = 1.00; % standard deviation of AGWN
-prop_var = 0.1; % proposal distribution variance (Gaussian)
+prop_var = 0.05; % proposal distribution variance (Gaussian)
 L = PA_Operator_1D(N,PA_order); % polynomial annihiliation operator
-% alpha = 0.25;
-%% function to be approximated
-a = 0;
-b = 1;
-dx = (b-a)./(N-1);
-grid = a + dx*(0:N-1)';
 
+% alpha parameters
+folds = 10;
+grid_size = 20;
+low_bnd = 0.00;
+up_bnd = 1.00;
+
+%% function to be approximated
+
+a = 0; % lower bound of  domain
+b = 1; % upper bound of domain
+dx = (b-a)./(N-1); % interval size
+grid = a + dx*(0:N-1)'; % gridpoints
+
+% initializes true function
 x = zeros(N,1);
 x = x + 40.*(grid>0.1&grid<0.25) + 10.*(grid<0.35&grid>0.325) + ...
     (2*pi./(sqrt(2*pi)*0.05)*exp(-((grid-0.75)/0.05).^2/(2))).*(grid>0.5);
@@ -43,10 +52,8 @@ plot(grid,x,'--k','linewidth',1.5);
 title('True Function');
 
 f2=figure;
-% L = PA_Operator_1D(N,PA_order); %polynomial annihiliation operator
 plot(grid, L*x, '-k', 'linewidth', 1.5);
 title('Edge Domain')
-
 
 %% forward model
 
@@ -64,8 +71,8 @@ end
 A = 0.1*randn(N,N);
 %% data
 
+% initializing the measurement vectors
 snr_y = zeros(J, 1);
-
 mmv = zeros(N, J);
 
 % building the J measurement vectors
@@ -76,22 +83,21 @@ for jj=1:J
     snr_y(jj,1) = snr(A*x, eta);
 end
 
+% mean of measurement vectors
 mmv_mean = mean(mmv, 2);
 fprintf('The unweighted signal-to-noise ratio is: %2.2f \n', mean(snr_y));
-
-%% alpha posterior approximation
-
-low_bnd = 0.00;
-up_bnd = 1.00;
-alpha_hat = alphaCV(mmv, A, prior, sig, L, 10, 20, low_bnd, up_bnd); % change sigma to an estimate later
 
 %% noise variance estimation
 
 var_est = mean(var(mmv, 0, 2)); % variances along the rows (each vector is a sample of Y)
-fprintf('the estimated standard deviation of the noise is: %f \n ', sqrt(var_est));
+fprintf('The estimated standard deviation of the noise is: %.3f \n ', sqrt(var_est));
 
-%%
-% J MAP estimates
+%% alpha posterior approximation (unweighted)
+
+fprintf('Approximating alpha without weighting matrix... \n');
+alpha_hat = alphaCV(mmv, A, prior, var_est, L, folds, grid_size, low_bnd, up_bnd); % calculates unweighted alpha with MSE minimization
+
+%% J MAP estimations
 
 fprintf('Calclulating MAP estimates\n');
 x_tilde = zeros(N,J);
@@ -120,12 +126,21 @@ error_inv_sum = sum(error_vec.^(-1));
 
 %% calculate weights
 
+fprintf('Calculating weighting matrix... \n');
 [W, var_vec] = VBJS_weights(x_tilde);
+
+%% alpha posterior approximation (weighted)
+
+fprintf('Approximating alpha with weighting matrix... \n');
+alpha_hat_w = alphaCV(mmv, A, prior, var_est, W*L, folds, grid_size, low_bnd, up_bnd); % calculates weighted alpha with MSE minimization
+
 %% unweighted posterior
+
 var_pos = 2* var_est; % sigma^2
 f_post = @(x) exp(-(1/var_pos)* norm(mmv(:, 1)-A*x,2)^2 - alpha_hat * norm(L*x,prior)); % f_post:R^N->R
 %% unweighted MCMC
-fprintf('Building MCMC chains...\n');
+
+fprintf('Building MCMC chains without weights...\n');
 
 x_MH = zeros(N,N_M); % each row is a MC for the jth grid point
 prop = @(x) normrnd(x, prop_var); % Gaussian proposal distribution - symmetric
@@ -167,10 +182,13 @@ error_mcmc = norm(x-mean(x_MH(:,BI:end),2))./norm(x);
 
 fprintf('Unweighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(2),error_mcmc,num_accept,N_M);
 %% weighted posterior
+
 var_pos_w = 2* var_est; % sigma^2
-f_post_w = @(x) exp(- (1/var_pos) * norm(mmv(:, 1)-A*x,2)^2 - alpha_hat * norm(W*L*x, prior)); % f_post_w:R^N->R
+f_post_w = @(x) exp(- (1/var_pos) * norm(mmv(:, 1)-A*x,2)^2 - alpha_hat_w * norm(W*L*x, prior)); % f_post_w:R^N->R
 
 %% Weighted MCMC
+
+fprintf('Building MCMC chains with weights...\n');
 
 x_MH_w = zeros(N,N_M); % each row is a MC for the jth grid point
 % prop = @(x) (x-beta/2) + (beta)*rand(N,1); % uniform proposal distribution - symmetric
@@ -221,7 +239,8 @@ error_mcmc_w = norm(x-mean(x_MH_w(:,BI:end),2))./norm(x);
 fprintf('Weighted MCMC \t || time = %2.2f sec \t|| error = %2.4f \t|| accept = %d/%d \n',time(3),error_mcmc_w,num_accept_w,N_M);
 
 %% autocorrelation
-% https://www.mathworks.com/matlabcentral/fileexchange/30540-autocorrelation-function-acf
+% reference: https://www.mathworks.com/matlabcentral/fileexchange/30540-autocorrelation-function-acf
+
 fprintf('Calculating autocorrelation...\n');
 
 lag_num = 5000;
@@ -283,9 +302,9 @@ hold on; xline(BI);
 title("Autocorrelation: h(x) = 50");
 sgtitle('Autocorrelation of Weighted MCMC'); 
 
-
 sgtitle("Autocorrelation of Weighted MCMC Mean")
 %% credibility intervals
+
 fprintf('Calculating credibility intervals...\n');
 
 tic
@@ -478,6 +497,7 @@ saveas(figure(f14),[pwd '/Figures/', currDate, '/', prefix, 'AR_w.jpg']);
 close all
 
 %% write the specifications of the MCMC run
+
 specfilename = sprintf('./Figures/%s/Specs.txt', currDate);
 specfile = fopen(specfilename, 'wt' );
 fprintf(specfile, 'MCMC Specifications: \n');
@@ -485,7 +505,8 @@ fprintf(specfile, '\n');
 fprintf(specfile, 'Grid size: %d\n', N);
 fprintf(specfile, 'Number of multiple measurement vectors: %d\n', J);
 fprintf(specfile, 'Prior distribution: ell_%d\n', prior);
-fprintf(specfile, 'alpha_hat (alpha posterior approximation): %.3f\n', alpha_hat);
+fprintf(specfile, 'alpha_hat (unweighted alpha posterior approximation): %.3f\n', alpha_hat);
+fprintf(specfile, 'alpha_hat_w (weighted alpha posterior approximation): %.3f\n', alpha_hat_w);
 fprintf(specfile, 'Polynomial annihilation order: %d\n', PA_order);
 fprintf(specfile, 'MCMC chain length: %d\n', N_M);
 fprintf(specfile, 'Burn-in length: %d\n', BI);

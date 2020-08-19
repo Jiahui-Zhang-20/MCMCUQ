@@ -71,5 +71,4 @@ figure;
 plot(log10(alpha_vec), log10(mse_vec));
 
 ind_min = mse_vec == min(mse_vec(:)); 
-alpha_hat = mean(alpha_vec(ind_min)); % calculates the mean of alphas
-                                        % corresponding to min mse
+alpha_hat = mean(alpha_vec(ind_min)); % calculates the mean of alphas corresponding to mininum MSE
